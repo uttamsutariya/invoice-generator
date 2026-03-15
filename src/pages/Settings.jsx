@@ -1,12 +1,41 @@
 import { useState, useEffect } from 'react';
-import { getSettings, saveSettings } from '../utils/storage';
+import { getSettings, saveSettings } from '../utils/supabase-storage';
+
+const DEFAULT_SETTINGS = {
+  companyName: '',
+  address: '',
+  gstin: '',
+  state: 'GUJARAT',
+  stateCode: '24',
+  panIec: '',
+  bankName: '',
+  bankBranch: '',
+  bankAccount: '',
+  bankIfsc: '',
+  invoicePrefix: 'EX/',
+  nextInvoiceNumber: 1,
+  lutBondNo: '',
+  lutFrom: '',
+  lutTo: '',
+};
 
 export default function Settings() {
-  const [form, setForm] = useState(getSettings());
+  const [form, setForm] = useState(DEFAULT_SETTINGS);
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    setForm(getSettings());
+    const load = async () => {
+      try {
+        setForm(await getSettings());
+      } catch (err) {
+        console.error('Failed to load settings:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
   }, []);
 
   const handleChange = (e) => {
@@ -15,12 +44,23 @@ export default function Settings() {
     setSaved(false);
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    saveSettings(form);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setSaving(true);
+    try {
+      await saveSettings(form);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      alert('Failed to save settings: ' + err.message);
+    } finally {
+      setSaving(false);
+    }
   };
+
+  if (loading) {
+    return <div className="page" style={{ textAlign: 'center', padding: '40px' }}>Loading settings...</div>;
+  }
 
   return (
     <div className="page">
@@ -110,8 +150,8 @@ export default function Settings() {
           </div>
         </fieldset>
 
-        <button type="submit" className="btn btn-primary">
-          {saved ? 'Saved!' : 'Save Settings'}
+        <button type="submit" className="btn btn-primary" disabled={saving}>
+          {saved ? 'Saved!' : saving ? 'Saving...' : 'Save Settings'}
         </button>
       </form>
     </div>

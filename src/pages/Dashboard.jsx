@@ -1,15 +1,25 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getInvoices, deleteInvoice } from '../utils/storage';
+import { getInvoices, deleteInvoice } from '../utils/supabase-storage';
 import { formatDate, getCurrencyByCode } from '../utils/helpers';
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const [invoices, setInvoices] = useState([]);
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setInvoices(getInvoices());
+    const load = async () => {
+      try {
+        setInvoices(await getInvoices());
+      } catch (err) {
+        console.error('Failed to load invoices:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
   }, []);
 
   const filtered = invoices.filter((inv) => {
@@ -21,10 +31,14 @@ export default function Dashboard() {
     );
   });
 
-  const handleDelete = (id) => {
+  const handleDelete = async (id) => {
     if (!window.confirm('Delete this invoice?')) return;
-    deleteInvoice(id);
-    setInvoices(getInvoices());
+    try {
+      await deleteInvoice(id);
+      setInvoices(await getInvoices());
+    } catch (err) {
+      alert('Failed to delete invoice: ' + err.message);
+    }
   };
 
   const getTotal = (inv) => {
@@ -34,6 +48,10 @@ export default function Dashboard() {
       return sum + amount + (amount * igstRate) / 100;
     }, 0);
   };
+
+  if (loading) {
+    return <div className="page" style={{ textAlign: 'center', padding: '40px' }}>Loading invoices...</div>;
+  }
 
   return (
     <div className="page">

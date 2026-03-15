@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getInvoiceById, getSignature } from "../utils/storage";
+import { getInvoiceById, getSignature } from "../utils/supabase-storage";
 import { formatDate, getCurrencyByCode, numberToWords, numberToWordsInternational } from "../utils/helpers";
 
 export default function InvoicePreview() {
@@ -9,15 +9,29 @@ export default function InvoicePreview() {
 	const printRef = useRef();
 	const [invoice, setInvoice] = useState(null);
 	const [signature, setSignature] = useState(null);
+	const [loading, setLoading] = useState(true);
 
 	useEffect(() => {
-		const inv = getInvoiceById(id);
-		if (inv) setInvoice(inv);
-		else navigate("/");
-		setSignature(getSignature());
+		const load = async () => {
+			try {
+				const [inv, sig] = await Promise.all([
+					getInvoiceById(id),
+					getSignature(),
+				]);
+				if (inv) setInvoice(inv);
+				else navigate("/");
+				setSignature(sig);
+			} catch (err) {
+				console.error('Failed to load invoice:', err);
+				navigate("/");
+			} finally {
+				setLoading(false);
+			}
+		};
+		load();
 	}, [id, navigate]);
 
-	if (!invoice) return null;
+	if (loading || !invoice) return <div className="page" style={{ textAlign: 'center', padding: '40px' }}>Loading...</div>;
 
 	const currency = getCurrencyByCode(invoice.currency);
 	const convRate = parseFloat(invoice.conversionRate) || 0;

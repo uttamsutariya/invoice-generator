@@ -12,7 +12,7 @@ import {
   saveService,
   getSignature,
   saveSignature,
-} from '../utils/storage';
+} from '../utils/supabase-storage';
 import {
   generateId,
   CURRENCIES,
@@ -33,35 +33,6 @@ function createEmptyLineItem() {
   };
 }
 
-function createNewInvoice(settings) {
-  return {
-    id: generateId(),
-    invoiceNo: getNextInvoiceNumber(),
-    invoiceDate: todayISO(),
-    dateOfSupply: todayISO(),
-    placeOfSupply: '',
-    lutBondNo: settings.lutBondNo || '',
-    lutFrom: settings.lutFrom || '',
-    lutTo: settings.lutTo || '',
-    state: settings.state || 'GUJARAT',
-    stateCode: settings.stateCode || '24',
-    currency: 'USD',
-    conversionRate: '',
-    client: { name: '', address: '', country: '' },
-    lineItems: [createEmptyLineItem()],
-    company: {
-      name: settings.companyName || '',
-      address: settings.address || '',
-      gstin: settings.gstin || '',
-      panIec: settings.panIec || '',
-      bankName: settings.bankName || '',
-      bankBranch: settings.bankBranch || '',
-      bankAccount: settings.bankAccount || '',
-      bankIfsc: settings.bankIfsc || '',
-    },
-  };
-}
-
 export default function InvoiceForm() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -77,33 +48,77 @@ export default function InvoiceForm() {
   const [showNewService, setShowNewService] = useState(false);
   const [newService, setNewService] = useState({ name: '', sacCode: '' });
   const [signature, setSignature] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const settings = getSettings();
-    setClients(getClients());
-    setServices(getServices());
-    setSignature(getSignature());
+    const load = async () => {
+      try {
+        const [settings, clientsList, servicesList, sig] = await Promise.all([
+          getSettings(),
+          getClients(),
+          getServices(),
+          getSignature(),
+        ]);
+        setClients(clientsList);
+        setServices(servicesList);
+        setSignature(sig);
 
-    if (isEditing) {
-      const existing = getInvoiceById(id);
-      if (existing) {
-        if (isDuplicating) {
+        if (isEditing) {
+          const existing = await getInvoiceById(id);
+          if (existing) {
+            if (isDuplicating) {
+              const nextNum = await getNextInvoiceNumber();
+              setInvoice({
+                ...existing,
+                id: generateId(),
+                invoiceNo: nextNum,
+                invoiceDate: todayISO(),
+                dateOfSupply: todayISO(),
+              });
+            } else {
+              setInvoice(existing);
+            }
+          } else {
+            navigate('/');
+          }
+        } else {
+          const nextNum = await getNextInvoiceNumber();
           setInvoice({
-            ...existing,
             id: generateId(),
-            invoiceNo: getNextInvoiceNumber(),
+            invoiceNo: nextNum,
             invoiceDate: todayISO(),
             dateOfSupply: todayISO(),
+            placeOfSupply: '',
+            lutBondNo: settings.lutBondNo || '',
+            lutFrom: settings.lutFrom || '',
+            lutTo: settings.lutTo || '',
+            state: settings.state || 'GUJARAT',
+            stateCode: settings.stateCode || '24',
+            currency: 'USD',
+            conversionRate: '',
+            client: { name: '', address: '', country: '' },
+            lineItems: [createEmptyLineItem()],
+            company: {
+              name: settings.companyName || '',
+              address: settings.address || '',
+              gstin: settings.gstin || '',
+              panIec: settings.panIec || '',
+              bankName: settings.bankName || '',
+              bankBranch: settings.bankBranch || '',
+              bankAccount: settings.bankAccount || '',
+              bankIfsc: settings.bankIfsc || '',
+            },
           });
-        } else {
-          setInvoice(existing);
         }
-      } else {
-        navigate('/');
+      } catch (err) {
+        console.error('Failed to load form data:', err);
+        alert('Failed to load data: ' + err.message);
+      } finally {
+        setLoading(false);
       }
-    } else {
-      setInvoice(createNewInvoice(settings));
-    }
+    };
+    load();
   }, [id, isEditing, isDuplicating, navigate]);
 
   const currency = useMemo(
@@ -111,7 +126,9 @@ export default function InvoiceForm() {
     [invoice?.currency]
   );
 
-  if (!invoice) return null;
+  if (loading || !invoice) {
+    return <div className="page" style={{ textAlign: 'center', padding: '40px' }}>Loading...</div>;
+  }
 
   const updateField = (field, value) => {
     setInvoice((prev) => ({ ...prev, [field]: value }));
@@ -171,17 +188,20 @@ export default function InvoiceForm() {
     }
   };
 
-  const handleSaveNewClient = () => {
+  const handleSaveNewClient = async () => {
     if (!newClient.name.trim()) return;
-    const client = { ...newClient, id: generateId() };
-    saveClient(client);
-    setClients((prev) => [...prev, client]);
-    setInvoice((prev) => ({
-      ...prev,
-      client: { name: client.name, address: client.address, country: client.country },
-    }));
-    setNewClient({ name: '', address: '', country: '' });
-    setShowNewClient(false);
+    try {
+      const saved = await saveClient(newClient);
+      setClients((prev) => [...prev, saved]);
+      setInvoice((prev) => ({
+        ...prev,
+        client: { name: saved.name, address: saved.address, country: saved.country },
+      }));
+      setNewClient({ name: '', address: '', country: '' });
+      setShowNewClient(false);
+    } catch (err) {
+      alert('Failed to save client: ' + err.message);
+    }
   };
 
   const selectService = (itemId, serviceId) => {
@@ -197,30 +217,41 @@ export default function InvoiceForm() {
     }
   };
 
-  const handleSaveNewService = () => {
+  const handleSaveNewService = async () => {
     if (!newService.name.trim()) return;
-    const service = { ...newService, id: generateId() };
-    saveService(service);
-    setServices((prev) => [...prev, service]);
-    setNewService({ name: '', sacCode: '' });
-    setShowNewService(false);
+    try {
+      const saved = await saveService(newService);
+      setServices((prev) => [...prev, saved]);
+      setNewService({ name: '', sacCode: '' });
+      setShowNewService(false);
+    } catch (err) {
+      alert('Failed to save service: ' + err.message);
+    }
   };
 
   const handleSignatureUpload = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       const base64 = ev.target.result;
-      saveSignature(base64);
-      setSignature(base64);
+      try {
+        await saveSignature(base64);
+        setSignature(base64);
+      } catch (err) {
+        alert('Failed to save signature: ' + err.message);
+      }
     };
     reader.readAsDataURL(file);
   };
 
-  const handleClearSignature = () => {
-    saveSignature(null);
-    setSignature(null);
+  const handleClearSignature = async () => {
+    try {
+      await saveSignature(null);
+      setSignature(null);
+    } catch (err) {
+      alert('Failed to clear signature: ' + err.message);
+    }
   };
 
   // Calculations
@@ -238,13 +269,19 @@ export default function InvoiceForm() {
   const convRate = parseFloat(invoice.conversionRate) || 0;
   const totalBillINR = totalBillForeign * convRate;
 
-  const handleSave = () => {
-    const isNew = !isEditing || isDuplicating;
-    saveInvoice(invoice);
-    if (isNew) {
-      incrementInvoiceNumber();
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const isNew = !isEditing || isDuplicating;
+      await saveInvoice(invoice);
+      if (isNew) {
+        await incrementInvoiceNumber();
+      }
+      navigate(`/invoice/${invoice.id}/preview`);
+    } catch (err) {
+      alert('Failed to save invoice: ' + err.message);
+      setSaving(false);
     }
-    navigate(`/invoice/${invoice.id}/preview`);
   };
 
   return (
@@ -253,7 +290,9 @@ export default function InvoiceForm() {
         <h2>{isEditing && !isDuplicating ? 'Edit Invoice' : 'New Invoice'}</h2>
         <div className="page-actions">
           <button className="btn" onClick={() => navigate('/')}>Cancel</button>
-          <button className="btn btn-primary" onClick={handleSave}>Save & Preview</button>
+          <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving...' : 'Save & Preview'}
+          </button>
         </div>
       </div>
 
@@ -611,7 +650,9 @@ export default function InvoiceForm() {
 
       <div className="form-actions">
         <button className="btn" onClick={() => navigate('/')}>Cancel</button>
-        <button className="btn btn-primary" onClick={handleSave}>Save & Preview</button>
+        <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving...' : 'Save & Preview'}
+        </button>
       </div>
     </div>
   );
