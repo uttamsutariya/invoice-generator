@@ -106,6 +106,39 @@ Enabled on all 5 tables. Policies for each:
 - **settings, clients, services, invoices**: `auth.uid() = user_id` for all operations (SELECT, INSERT, UPDATE, DELETE)
 - **invoice_line_items**: policy via join — `EXISTS (SELECT 1 FROM invoices WHERE invoices.id = invoice_line_items.invoice_id AND invoices.user_id = auth.uid())` for all operations
 
+### `company` JSONB Shape (on invoices)
+
+The `company` column stores a snapshot of the seller's details at invoice creation time:
+
+```json
+{
+  "name": "string",
+  "address": "string",
+  "gstin": "string",
+  "panIec": "string",
+  "bankName": "string",
+  "bankBranch": "string",
+  "bankAccount": "string",
+  "bankIfsc": "string"
+}
+```
+
+### `updated_at` Trigger
+
+A Postgres trigger auto-updates the `updated_at` column on UPDATE for `settings` and `invoices` tables:
+
+```sql
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+Applied to both `settings` and `invoices` tables.
+
 ### Key Design Decisions
 
 - **Client info denormalized on invoices**: Invoice stores a snapshot of client data at creation time (matches current behavior)
@@ -138,8 +171,8 @@ Logout button → supabase.auth.signOut() → Redirect to /login
 
 ### Components
 
-- **`AuthContext`**: React context providing `user`, `session`, `loading`, `signIn()`, `signOut()`
-- **`ProtectedRoute`**: Wrapper that redirects to `/login` if no session
+- **`AuthContext`**: React context providing `user`, `session`, `loading`, `signIn()`, `signOut()`. Subscribes to `supabase.auth.onAuthStateChange()` to keep session state current on token refresh/expiry.
+- **`ProtectedRoute`**: Single wrapper around all routes except `/login`. Redirects to `/login` if no session.
 - **`Login.jsx`**: Simple email + password form
 
 ### No features
@@ -185,7 +218,16 @@ export const saveInvoice = async (invoice) => { /* upserts to supabase */ }
 | `saveSettings(settings)` | Upsert settings on user_id |
 | `getSignature()` | Read signature column from settings |
 | `saveSignature(base64)` | Update signature column in settings |
-| `incrementInvoiceNumber()` | Update next_invoice_number in settings (+1) |
+| `getNextInvoiceNumber()` | Read settings to build invoice number string (prefix + zero-padded number) |
+| `incrementInvoiceNumber()` | Atomic update: `UPDATE settings SET next_invoice_number = next_invoice_number + 1 WHERE user_id = $1 RETURNING next_invoice_number` — avoids race conditions |
+
+### Data Shape Mapping (snake_case ↔ camelCase)
+
+`supabase-storage.js` translates between database snake_case columns and the camelCase shapes components expect. Components continue using the same object shapes as before (e.g., `invoice.invoiceNo`, `invoice.client.name`, `invoice.lineItems[]`). The translation happens entirely within the storage layer — components are unaware of the database schema.
+
+### Error Handling
+
+All storage functions throw on failure. Components catch errors and show an alert/message to the user. This keeps error handling simple and consistent across all pages.
 
 ### user_id Injection
 
@@ -198,7 +240,7 @@ Every function gets the current user ID from `supabase.auth.getUser()`. RLS prov
 | `Dashboard.jsx` | Async fetch invoices in useEffect, add loading state |
 | `InvoiceForm.jsx` | Async load (settings, clients, services, invoice for edit), async save |
 | `InvoicePreview.jsx` | Async load invoice by ID, add loading state |
-| `Settings.jsx` | Async load/save settings and signature |
+| `Settings.jsx` | Async load/save settings and signature, add loading state |
 
 ---
 
