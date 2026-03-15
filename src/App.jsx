@@ -5,6 +5,7 @@ import InvoiceForm from './pages/InvoiceForm';
 import InvoicePreview from './pages/InvoicePreview';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
+import Migrate from './pages/Migrate';
 
 function ProtectedRoute({ children }) {
   const { session, loading } = useAuth();
@@ -52,6 +53,7 @@ function AppRoutes() {
                 <Route path="/invoice/:id/edit" element={<InvoiceForm />} />
                 <Route path="/invoice/:id/preview" element={<InvoicePreview />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/migrate" element={<Migrate />} />
                 <Route path="*" element={<Navigate to="/" />} />
               </Routes>
             </main>
