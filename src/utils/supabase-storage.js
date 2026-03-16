@@ -303,8 +303,13 @@ export async function getInvoiceById(id) {
 export async function saveInvoice(invoice) {
   const userId = await getUserId();
 
+  // Only pass id if it's a valid UUID (i.e., an existing DB record);
+  // for new invoices, let the database generate the uuid.
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const hasValidUuid = invoice.id && uuidRegex.test(invoice.id);
+
   const invoiceRow = {
-    id: invoice.id || undefined,
+    ...(hasValidUuid ? { id: invoice.id } : {}),
     user_id: userId,
     invoice_no: invoice.invoiceNo,
     invoice_date: invoice.invoiceDate || null,
@@ -354,7 +359,7 @@ export async function saveInvoice(invoice) {
     if (insertErr) throw insertErr;
   }
 
-  return invoice;
+  return { ...invoice, id: invoiceId };
 }
 
 export async function deleteInvoice(id) {
